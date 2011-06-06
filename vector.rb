@@ -1,9 +1,25 @@
 class Vector < Array
+	
+	def -@
+     self.map{|x| -x}.to_v
+   end
+   
+   def +@
+     self
+   end
+
 	def +(a)
 	  sum = Vector.new
 	  self.each_index{|k| sum[k] = self[k]+a[k]}
 	  sum
 	end
+	
+	def -(a)
+     diff = Vector.new
+     self.each_index{|k| diff[k] = self[k]-a[k]}
+     diff
+   end
+   
 	def *(a)
 	  if a.class == Vector              # inner product
 		 product = 0
@@ -14,6 +30,16 @@ class Vector < Array
 	  end
 	  product
 	end
+	
+	def /(a)
+     if a.class == Vector
+       raise
+     else
+       quotient = Vector.new           # scalar quotient
+       self.each_index{|k| quotient[k] = self[k]/a}
+     end
+     quotient
+   end
 end
 
 class Array

@@ -2,12 +2,12 @@
 require "body.rb"
 include Math
 
-dt = 0.001            # time step
-dt_dia = 10           # diagnostics printing interval
-dt_out = 10           # output interval
-dt_end = 10           # duration of the integration
-# methods: forward leapfrog rk2 rk4 yo6
-method = "yo6"   # integration method                                
+dt = 0.01            # time step
+dt_dia = 0.1           # diagnostics printing interval
+dt_out = 0.1           # output interval
+dt_end = 0.1           # duration of the integration
+# methods: forward leapfrog rk2 rk4 yo6 yo8 ms2 ms4 ms4pc
+method = "ms4pc"   # integration method                                
 
 STDERR.print "dt = ", dt, "\n",
 				"dt_dia = ", dt_dia, "\n",
