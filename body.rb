@@ -3,18 +3,25 @@ require "vector.rb"
 
 class Body
 
-  attr_accessor :mass, :pos, :vel, :nb                                       
+  attr_accessor :mass, :pos, :vel
 
   def initialize(mass = 0, pos = Vector[0,0,0], vel = Vector[0,0,0])
     @mass, @pos, @vel = mass, pos, vel
   end
 
-  def acc
-    a = @pos*0                    # null vector of the correct length
-    @nb.body.each do |b|
+  def calc(softening_parameter, body_array, time_step, s)
+    ba  = body_array
+    dt = time_step
+    eps = softening_parameter
+    eval(s)
+  end
+
+  def acc(body_array, eps)
+    a = @pos*0                              # null vector of the correct length
+    body_array.each do |b|
       unless b == self
         r = b.pos - @pos
-        r2 = r*r
+        r2 = r*r + eps*eps
         r3 = r2*sqrt(r2)
         a += r*(b.mass/r3)
       end
@@ -22,16 +29,16 @@ class Body
     a
   end    
 
-  def ekin                        # kinetic energy
+  def ekin                         # kinetic energy
     0.5*@mass*(@vel*@vel)
   end
 
-  def epot                        # potential energy
+  def epot(body_array, eps)        # potential energy
     p = 0
-    @nb.body.each do |b|
+    body_array.each do |b|
       unless b == self
         r = b.pos - @pos
-        p += -@mass*b.mass/sqrt(r*r)
+        p += -@mass*b.mass/sqrt(r*r + eps*eps)
       end
     end
     p
@@ -43,8 +50,12 @@ class Body
     "   vel = " + @vel.join(", ") + "\n"
   end
 
-  def pp               # pretty print
+  def pp                           # pretty print
     print to_s
+  end
+
+  def ppx(body_array, eps)         # pretty print, with extra information (acc)
+    STDERR.print to_s + "   acc = " + acc(body_array, eps).join(", ") + "\n"
   end
 
   def simple_print
@@ -65,30 +76,29 @@ class Nbody
 
   attr_accessor :time, :body
 
-  def initialize(n=0, time = 0)
-    @time = time
+  def initialize
     @body = []
-    for i in 0...n
-      @body[i] = Body.new
-      @boby[i].nb = self
-    end
   end
 
-  def evolve(integration_method, dt, dt_dia, dt_out, dt_end)
+  def evolve(integration_method, eps, dt, dt_dia, dt_out, dt_end,
+             init_out, x_flag)
+    @dt = dt                                                                 
+    @eps = eps                                                               
     nsteps = 0
     e_init
-    write_diagnostics(nsteps)
-
+    write_diagnostics(nsteps, x_flag)
     t_dia = dt_dia - 0.5*dt
     t_out = dt_out - 0.5*dt
     t_end = dt_end - 0.5*dt
 
+    simple_print if init_out
+
     while @time < t_end
-      send(integration_method,dt)
+      send(integration_method)
       @time += dt
       nsteps += 1
       if @time >= t_dia
-        write_diagnostics(nsteps)
+        write_diagnostics(nsteps, x_flag)
         t_dia += dt_dia
       end
       if @time >= t_out
@@ -98,46 +108,39 @@ class Nbody
     end
   end
 
-  def forward(dt)
-    old_acc = []
-    @body.each_index{|i| old_acc[i] = @body[i].acc}
-    @body.each{|b| b.pos += b.vel*dt}
-    @body.each_index{|i| @body[i].vel += old_acc[i]*dt}
+  def calc(s)
+    @body.each{|b| b.calc(@eps, @body, @dt, s)}
   end
 
-  def leapfrog(dt)
-    @body.each{|b| b.vel += b.acc*0.5*dt}
-    @body.each{|b| b.pos += b.vel*dt}
-    @body.each{|b| b.vel += b.acc*0.5*dt}
+  def forward
+    calc(" @old_acc = acc(ba,eps) ")
+    calc(" @pos += @vel*dt ")
+    calc(" @vel += @old_acc*dt ")
   end
 
-  def rk2(dt)
-    old_pos = []
-    @body.each_index{|i| old_pos[i] = @body[i].pos}
-    half_vel = []
-    @body.each_index{|i| half_vel[i] = @body[i].vel + @body[i].acc*0.5*dt}
-    @body.each{|b| b.pos += b.vel*0.5*dt}
-    @body.each{|b| b.vel += b.acc*dt}
-    @body.each_index{|i| @body[i].pos = old_pos[i] + half_vel[i]*dt}
+  def leapfrog
+    calc(" @vel += acc(ba,eps)*0.5*dt ")
+    calc(" @pos += @vel*dt ")
+    calc(" @vel += acc(ba,eps)*0.5*dt ")
   end
 
-  def rk4(dt)
-    old_pos = []
-    @body.each_index{|i| old_pos[i] = @body[i].pos}
-    a0 = []
-    @body.each_index{|i| a0[i] = @body[i].acc}
-    @body.each_index{|i|
-      @body[i].pos = old_pos[i] + @body[i].vel*0.5*dt + a0[i]*0.125*dt*dt}
-    a1 = []
-    @body.each_index{|i| a1[i] = @body[i].acc}
-    @body.each_index{|i|
-      @body[i].pos = old_pos[i] + @body[i].vel*dt + a1[i]*0.5*dt*dt}
-    a2 = []
-    @body.each_index{|i| a2[i] = @body[i].acc}
-    @body.each_index{|i|
-      @body[i].pos = old_pos[i] + @body[i].vel*dt +
-                     (a0[i]+a1[i]*2)*(1/6.0)*dt*dt}
-    @body.each_index{|i| @body[i].vel += (a0[i]+a1[i]*4+a2[i])*(1/6.0)*dt}
+  def rk2
+    calc(" @old_pos = @pos ")
+    calc(" @half_vel = @vel + acc(ba,eps)*0.5*dt ")
+    calc(" @pos += @vel*0.5*dt ")
+    calc(" @vel += acc(ba,eps)*dt ")
+    calc(" @pos = @old_pos + @half_vel*dt ")
+  end
+
+  def rk4
+    calc(" @old_pos = @pos ")
+    calc(" @a0 = acc(ba,eps) ")
+    calc(" @pos = @old_pos + @vel*0.5*dt + @a0*0.125*dt*dt ")
+    calc(" @a1 = acc(ba,eps) ")
+    calc(" @pos = @old_pos + @vel*dt + @a1*0.5*dt*dt ")
+    calc(" @a2 = acc(ba,eps) ")
+    calc(" @pos = @old_pos + @vel*dt + (@a0+@a1*2)*(1/6.0)*dt*dt ")
+    calc(" @vel += (@a0+@a1*4+@a2)*(1/6.0)*dt ")
   end
 
   def ekin                        # kinetic energy
@@ -148,7 +151,7 @@ class Nbody
 
   def epot                        # potential energy
     e = 0
-    @body.each{|b| e += b.epot}
+    @body.each{|b| e += b.epot(@body, @eps)}
     e/2                           # pairwise potentials were counted twice
   end
 
@@ -156,7 +159,7 @@ class Nbody
     @e0 = ekin + epot
   end
 
-  def write_diagnostics(nsteps)
+  def write_diagnostics(nsteps, x_flag)
     etot = ekin + epot
     STDERR.print <<END
  at time t = #{sprintf("%g", time)}, after #{nsteps} steps :
@@ -167,11 +170,17 @@ class Nbody
    (E_tot - E_init) / E_init = #{sprintf("%.3g", (etot - @e0)/@e0 )}
 END
   end
-  
-  def pp                                # pretty print
+    
+  def pp                           # pretty print
     print "     N = ", @body.size, "\n"
     print "  time = ", @time, "\n"
     @body.each{|b| b.pp}
+  end
+
+  def ppx                          # pretty print, with extra information (acc)
+    print "     N = ", @body.size, "\n"
+    print "  time = ", @time, "\n"
+    @body.each{|b| b.ppx(@body, @eps)}
   end
 
   def simple_print
@@ -185,7 +194,6 @@ END
     @time = gets.to_f
     for i in 0...n
       @body[i] = Body.new
-      @body[i].nb = self
       @body[i].simple_read
     end
   end
