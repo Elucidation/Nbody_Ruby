@@ -3,201 +3,191 @@ require "vector.rb"
 
 class Body
 
-	attr_accessor :mass, :pos, :vel
+  attr_accessor :mass, :pos, :vel, :nb                                       
 
-	def initialize(mass = 0, pos = Vector[0,0,0], vel = Vector[0,0,0])
-	  @mass, @pos, @vel = mass, pos, vel
-	end
+  def initialize(mass = 0, pos = Vector[0,0,0], vel = Vector[0,0,0])
+    @mass, @pos, @vel = mass, pos, vel
+  end
 
-	def evolve(integration_method, dt, dt_dia, dt_out, dt_end)
-	  time = 0
-	  @nsteps = 0
-	  e_init
-	  write_diagnostics(@nsteps, time)
+  def acc
+    a = @pos*0                    # null vector of the correct length
+    @nb.body.each do |b|
+      unless b == self
+        r = b.pos - @pos
+        r2 = r*r
+        r3 = r2*sqrt(r2)
+        a += r*(b.mass/r3)
+      end
+    end
+    a
+  end    
 
-	  t_dia = dt_dia - 0.5*dt
-	  t_out = dt_out - 0.5*dt
-	  t_end = dt_end - 0.5*dt
+  def ekin                        # kinetic energy
+    0.5*@mass*(@vel*@vel)
+  end
 
-	  while time < t_end
-		 send(integration_method,dt)
-		 time += dt
-		 @nsteps += 1
-		 if time >= t_dia
-		   write_diagnostics(@nsteps, time)
-		   t_dia += dt_dia
-		 end
-		 if time >= t_out
-		   simple_print
-		   t_out += dt_out
-		 end
-	  end
-	end
+  def epot                        # potential energy
+    p = 0
+    @nb.body.each do |b|
+      unless b == self
+        r = b.pos - @pos
+        p += -@mass*b.mass/sqrt(r*r)
+      end
+    end
+    p
+  end
 
-	def acc
-	  r2 = @pos*@pos
-	  r3 = r2*sqrt(r2)
-	  @pos*(-@mass/r3)
-	end    
+  def to_s
+    "  mass = " + @mass.to_s + "\n" +
+    "   pos = " + @pos.join(", ") + "\n" +
+    "   vel = " + @vel.join(", ") + "\n"
+  end
 
-	def forward(dt)
-	  old_acc = acc
-	  @pos += @vel*dt
-	  @vel += old_acc*dt
-	end
+  def pp               # pretty print
+    print to_s
+  end
 
-	def leapfrog(dt)
-	  @vel += acc*0.5*dt
-	  @pos += @vel*dt
-	  @vel += acc*0.5*dt
-	end
-	
-	def rk2(dt)
-     old_pos = pos
-     half_vel = vel + acc*0.5*dt
-     @pos += vel*0.5*dt
-     @vel += acc*dt
-     @pos = old_pos + half_vel*dt
-   end
+  def simple_print
+    printf("%24.16e\n", @mass)
+    @pos.each{|x| printf("%24.16e", x)}; print "\n"
+    @vel.each{|x| printf("%24.16e", x)}; print "\n"
+  end
 
-   def rk4(dt)
-     old_pos = pos
-     a0 = acc
-     @pos = old_pos + vel*0.5*dt + a0*0.125*dt*dt
-     a1 = acc
-     @pos = old_pos + vel*dt + a1*0.5*dt*dt
-     a2 = acc
-     @pos = old_pos + vel*dt + (a0+a1*2)*(1/6.0)*dt*dt                       
-     @vel = vel + (a0+a1*4+a2)*(1/6.0)*dt                                    
-   end
-   
-   def yo6(dt)
-     d = [0.784513610477560e0, 0.235573213359357e0, -1.17767998417887e0,
-          1.31518632068391e0]
-     for i in 0..2 do leapfrog(dt*d[i]) end
-     leapfrog(dt*d[3])
-     for i in 0..2 do leapfrog(dt*d[2-i]) end
-   end
-   
-   def yo8(dt)
-     d = [0.104242620869991e1, 0.182020630970714e1, 0.157739928123617e0, 
-          0.244002732616735e1, -0.716989419708120e-2, -0.244699182370524e1, 
-          -0.161582374150097e1, -0.17808286265894516e1]
-     for i in 0..6 do leapfrog(dt*d[i]) end
-     leapfrog(dt*d[7])
-     for i in 0..6 do leapfrog(dt*d[6-i]) end
-   end
-   
-   def ms2(dt)
-     if @nsteps == 0
-       @prev_acc = acc
-       rk2(dt)
-     else
-       old_acc = acc
-       jdt = old_acc - @prev_acc
-       @pos += vel*dt + old_acc*0.5*dt*dt
-       @vel += old_acc*dt + jdt*0.5*dt
-       @prev_acc = old_acc
-     end
-   end
-   
-	def ms4(dt)
-     if @nsteps == 0
-       @ap3 = acc
-       rk4(dt)
-     elsif @nsteps == 1
-       @ap2 = acc
-       rk4(dt)
-     elsif @nsteps == 2
-       @ap1 = acc
-       rk4(dt)
-     else
-       ap0 = acc
-       jdt = ap0*(11.0/6.0) - @ap1*3 + @ap2*1.5 - @ap3/3.0
-       sdt2 = ap0*2 - @ap1*5 + @ap2*4 - @ap3
-       cdt3 = ap0 - @ap1*3 + @ap2*3 - @ap3
-       @pos += vel*dt + (ap0/2.0 + jdt/6.0 + sdt2/24.0)*dt*dt
-       @vel += ap0*dt + (jdt/2.0 + sdt2/6.0 + cdt3/24.0)*dt
-       @ap3 = @ap2
-       @ap2 = @ap1
-       @ap1 = ap0
-     end
-   end
-   
-   def ms4pc(dt)
-     if @nsteps == 0
-       @ap3 = acc
-       rk4(dt)
-     elsif @nsteps == 1
-       @ap2 = acc
-       rk4(dt)
-     elsif @nsteps == 2
-       @ap1 = acc
-       rk4(dt)
-       @ap0 = acc
-     else
-       old_pos = pos
-       old_vel = vel
-       jdt = @ap0*(11.0/6.0) - @ap1*3 + @ap2*1.5 - @ap3/3.0
-       sdt2 = @ap0*2 - @ap1*5 + @ap2*4 - @ap3
-       cdt3 = @ap0 - @ap1*3 + @ap2*3 - @ap3
-       @pos += vel*dt + (@ap0/2.0 + jdt/6.0 + sdt2/24.0)*dt*dt
-       @ap3 = @ap2
-       @ap2 = @ap1
-       @ap1 = @ap0
-       @ap0 = acc
-       jdt = @ap0*(11.0/6.0) - @ap1*3 + @ap2*1.5 - @ap3/3.0
-       sdt2 = @ap0*2 - @ap1*5 + @ap2*4 - @ap3
-       cdt3 = @ap0 - @ap1*3 + @ap2*3 - @ap3
-       @vel = old_vel + @ap0*dt + (-jdt/2.0 + sdt2/6.0 - cdt3/24.0)*dt
-       @pos = old_pos + vel*dt + (-@ap0/2.0 + jdt/6.0 - sdt2/24.0)*dt*dt
-     end
-   end
-   
-	def ekin                        # kinetic energy
-	  0.5*(@vel*@vel)               # per unit of reduced mass
-	end
+  def simple_read
+    @mass = gets.to_f
+    @pos = gets.split.map{|x| x.to_f}.to_v
+    @vel = gets.split.map{|x| x.to_f}.to_v
+  end
 
-	def epot                        # potential energy
-	  -@mass/sqrt(@pos*@pos)        # per unit of reduced mass
-	end
+end
 
-	def e_init                      # initial total energy
-	  @e0 = ekin + epot             # per unit of reduced mass
-	end
+class Nbody
 
-	def write_diagnostics(nsteps, time)
-	  etot = ekin + epot
-	  STDERR.print <<END
-	at time t = #{sprintf("%g", time)}, after #{nsteps} steps :
-	E_kin = #{sprintf("%.3g", ekin)} ,\
-	E_pot =  #{sprintf("%.3g", epot)} ,\
-	E_tot = #{sprintf("%.3g", etot)}
-		        E_tot - E_init = #{sprintf("%.3g", etot-@e0)}
-	(E_tot - E_init) / E_init =#{sprintf("%.3g", (etot - @e0) / @e0 )}
+  attr_accessor :time, :body
+
+  def initialize(n=0, time = 0)
+    @time = time
+    @body = []
+    for i in 0...n
+      @body[i] = Body.new
+      @boby[i].nb = self
+    end
+  end
+
+  def evolve(integration_method, dt, dt_dia, dt_out, dt_end)
+    nsteps = 0
+    e_init
+    write_diagnostics(nsteps)
+
+    t_dia = dt_dia - 0.5*dt
+    t_out = dt_out - 0.5*dt
+    t_end = dt_end - 0.5*dt
+
+    while @time < t_end
+      send(integration_method,dt)
+      @time += dt
+      nsteps += 1
+      if @time >= t_dia
+        write_diagnostics(nsteps)
+        t_dia += dt_dia
+      end
+      if @time >= t_out
+        simple_print
+        t_out += dt_out
+      end
+    end
+  end
+
+  def forward(dt)
+    old_acc = []
+    @body.each_index{|i| old_acc[i] = @body[i].acc}
+    @body.each{|b| b.pos += b.vel*dt}
+    @body.each_index{|i| @body[i].vel += old_acc[i]*dt}
+  end
+
+  def leapfrog(dt)
+    @body.each{|b| b.vel += b.acc*0.5*dt}
+    @body.each{|b| b.pos += b.vel*dt}
+    @body.each{|b| b.vel += b.acc*0.5*dt}
+  end
+
+  def rk2(dt)
+    old_pos = []
+    @body.each_index{|i| old_pos[i] = @body[i].pos}
+    half_vel = []
+    @body.each_index{|i| half_vel[i] = @body[i].vel + @body[i].acc*0.5*dt}
+    @body.each{|b| b.pos += b.vel*0.5*dt}
+    @body.each{|b| b.vel += b.acc*dt}
+    @body.each_index{|i| @body[i].pos = old_pos[i] + half_vel[i]*dt}
+  end
+
+  def rk4(dt)
+    old_pos = []
+    @body.each_index{|i| old_pos[i] = @body[i].pos}
+    a0 = []
+    @body.each_index{|i| a0[i] = @body[i].acc}
+    @body.each_index{|i|
+      @body[i].pos = old_pos[i] + @body[i].vel*0.5*dt + a0[i]*0.125*dt*dt}
+    a1 = []
+    @body.each_index{|i| a1[i] = @body[i].acc}
+    @body.each_index{|i|
+      @body[i].pos = old_pos[i] + @body[i].vel*dt + a1[i]*0.5*dt*dt}
+    a2 = []
+    @body.each_index{|i| a2[i] = @body[i].acc}
+    @body.each_index{|i|
+      @body[i].pos = old_pos[i] + @body[i].vel*dt +
+                     (a0[i]+a1[i]*2)*(1/6.0)*dt*dt}
+    @body.each_index{|i| @body[i].vel += (a0[i]+a1[i]*4+a2[i])*(1/6.0)*dt}
+  end
+
+  def ekin                        # kinetic energy
+    e = 0
+    @body.each{|b| e += b.ekin}
+    e
+  end
+
+  def epot                        # potential energy
+    e = 0
+    @body.each{|b| e += b.epot}
+    e/2                           # pairwise potentials were counted twice
+  end
+
+  def e_init                      # initial total energy
+    @e0 = ekin + epot
+  end
+
+  def write_diagnostics(nsteps)
+    etot = ekin + epot
+    STDERR.print <<END
+ at time t = #{sprintf("%g", time)}, after #{nsteps} steps :
+   E_kin = #{sprintf("%.3g", ekin)} ,\
+  E_pot =  #{sprintf("%.3g", epot)} ,\
+  E_tot = #{sprintf("%.3g", etot)}
+              E_tot - E_init = #{sprintf("%.3g", etot - @e0)}
+   (E_tot - E_init) / E_init = #{sprintf("%.3g", (etot - @e0)/@e0 )}
 END
-	end
+  end
+  
+  def pp                                # pretty print
+    print "     N = ", @body.size, "\n"
+    print "  time = ", @time, "\n"
+    @body.each{|b| b.pp}
+  end
 
-	def to_s
-	  "  mass = " + @mass.to_s + "\n" +
-	  "   pos = " + @pos.join(", ") + "\n" +
-	  "   vel = " + @vel.join(", ") + "\n"
-	end
+  def simple_print
+    print @body.size, "\n"
+    printf("%24.16e\n", @time)
+    @body.each{|b| b.simple_print}
+  end
 
-	def pp               # pretty print
-	  print to_s
-	end
-
-	def simple_print
-	  printf("%24.16e\n", @mass)
-	  @pos.each{|x| printf("%24.16e", x)}; print "\n"
-	  @vel.each{|x| printf("%24.16e", x)}; print "\n"
-	end
-
-	def simple_read
-	  @mass = gets.to_f
-	  @pos = gets.split.map{|x| x.to_f}.to_v
-	  @vel = gets.split.map{|x| x.to_f}.to_v
-	end
+  def simple_read
+    n = gets.to_i
+    @time = gets.to_f
+    for i in 0...n
+      @body[i] = Body.new
+      @body[i].nb = self
+      @body[i].simple_read
+    end
+  end
 
 end
